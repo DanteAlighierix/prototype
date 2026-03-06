@@ -4441,7 +4441,7 @@ end)
 -- INTRO SEQUENCE
 -- ================================================================
 task.spawn(function()
-    local LOGO_ID  = "rbxassetid://85084630544146"
+    local LOGO_ID  = "rbxassetid://103337988227837"
     local SOUND_ID = "rbxassetid://126319073341656"
 
     local T_GROW     = 2.2

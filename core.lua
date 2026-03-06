@@ -3793,7 +3793,7 @@ end
 -- =================================================================
 
 -- ---- CAMLOCK ----
-do
+do -- camlock: status + settings
     local pg = Pages["Camlock"]
     local _, rfCL = UI.StatusRow(pg, "CamLock", function() return camLockEnabled end, function()
         camLockEnabled = not camLockEnabled
@@ -3809,25 +3809,26 @@ do
     UI.Toggle(pg,"Crew Check",  settings.crewCheck,  function(v) settings.crewCheck=v  end)
     UI.Slider(pg,"Range",settings.range,50,10000,10,function(v) settings.range=v end)
     UI.Slider(pg,"Smoothness",settings.smooth,0.01,1,0.01,function(v) settings.smooth=v end)
-
+end
+do -- camlock: wall / shake / gun profiles
+    local pg = Pages["Camlock"]
     sep(pg); UI.Header(pg,"wall check"); sep(pg)
     UI.Toggle(pg,"Wall Check", settings.wallCheck, function(v)
         settings.wallCheck = v
         pcall(showToast, "Wall Check", v and "enabled — pauses on walls" or "disabled", v and TOAST_GREEN or TOAST_RED, "⬛")
     end)
-
     sep(pg); UI.Header(pg,"shake"); sep(pg)
     UI.Toggle(pg,"Shake",settings.shakeEnabled,function(v) settings.shakeEnabled=v end)
     UI.Slider(pg,"Shake X",settings.shakeX,0,0.02,0.001,function(v) settings.shakeX=v end)
     UI.Slider(pg,"Shake Y",settings.shakeY,0,0.02,0.001,function(v) settings.shakeY=v end)
-
     sep(pg); UI.Header(pg,"gun profiles"); sep(pg)
     UI.Toggle(pg,"Gun Profiles",GunProfiles.enabled,function(v)
         GunProfiles.enabled=v
         pcall(showToast,"Gun Profiles", v and "enabled — auto fov/pred per gun" or "disabled", v and TOAST_GREEN or TOAST_RED,"🔫")
     end)
-
-    -- Aim part selector
+end
+do -- camlock: aim part selector
+    local pg = Pages["Camlock"]
     sep(pg); UI.Header(pg,"aim part"); sep(pg)
     local clPartNames = {"Head","UpperTorso","LowerTorso","HumanoidRootPart","Torso"}
     local clPartRow = Instance.new("Frame",pg)

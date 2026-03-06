@@ -230,7 +230,7 @@ end
 local _velData = {}  -- [id] = {pos, t, vel}
 
 local function getVelocity(id, pos, dt)
-    local now = tick()
+    local now = os.clock()
     local d = _velData[id]
     if not d then
         _velData[id] = { pos = pos, t = now, vel = Vector3.zero }
@@ -248,7 +248,7 @@ local function getVelocity(id, pos, dt)
 end
 
 RunService.Heartbeat:Connect(function()
-    local now = tick()
+    local now = os.clock()
     for id, d in pairs(_velData) do
         if now - d.t > 5 then _velData[id] = nil end
     end
@@ -2025,7 +2025,7 @@ local function startRageStrafe()
 
         -- Auto shoot
         if Ragebot.autoShoot then
-            local now = tick()
+            local now = os.clock()
             if now - Ragebot._lastShot >= Ragebot._shootInterval then
                 Ragebot._lastShot = now
                 pcall(mouse1click)
@@ -2039,7 +2039,7 @@ local function startRageStrafe()
                 local ammo    = tool:FindFirstChild("Ammo")
                 local maxAmmo = tool:FindFirstChild("MaxAmmo")
                 if ammo and maxAmmo and ammo.Value <= 0 and maxAmmo.Value > 0 then
-                    local now = tick()
+                    local now = os.clock()
                     if now - Ragebot._lastReload > 0.8 then
                         Ragebot._lastReload = now
                         pcall(function()
@@ -2498,7 +2498,7 @@ RunService.Heartbeat:Connect(function()
     end
 
     -- Interval
-    local now = tick()
+    local now = os.clock()
     if now - _tbLastShot < TriggerBot.interval then return end
 
     -- Ray check

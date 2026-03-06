@@ -2629,209 +2629,189 @@ local ESP = {
 }
 
 -- ================================================================
--- CONFIG READER — reads getgenv().PROTO set by the config file
--- If no config table found, script uses hardcoded defaults above.
+-- CONFIG READER
 -- ================================================================
-do
+local function _loadConfig()
     local CFG = getgenv and getgenv().PROTO
-    if CFG then
+    if not CFG then return end
 
-        -- ── CamLock ──────────────────────────────────────────────
-        local cl = CFG.CamLock
-        if cl then
-            if cl.Key         ~= nil then settings.key         = cl.Key         end
-            if cl.Toggle      ~= nil then settings.toggle      = cl.Toggle      end
-            if cl.Range       ~= nil then settings.range       = cl.Range       end
-            if cl.Smooth      ~= nil then settings.smooth      = cl.Smooth      end
-            if cl.StickyAim   ~= nil then settings.stickyAim   = cl.StickyAim   end
-            if cl.KnockCheck  ~= nil then settings.knockCheck  = cl.KnockCheck  end
-            if cl.TeamCheck   ~= nil then settings.teamCheck   = cl.TeamCheck   end
-            if cl.CrewCheck   ~= nil then settings.crewCheck   = cl.CrewCheck   end
-            if cl.WallCheck   ~= nil then settings.wallCheck   = cl.WallCheck   end
-            if cl.FovVisible  ~= nil then settings.fovVisible  = cl.FovVisible  end
-            if cl.FovSize     ~= nil then settings.fovSize     = cl.FovSize     end
-            if cl.PredictionX ~= nil then settings.predictionX = cl.PredictionX end
-            if cl.PredictionY ~= nil then settings.predictionY = cl.PredictionY end
-            if cl.PredictionZ ~= nil then settings.predictionZ = cl.PredictionZ end
-            if cl.AimPart     ~= nil then camlockAimPart       = cl.AimPart     end
-            if cl.Shake then
-                if cl.Shake.Enabled ~= nil then settings.shakeEnabled = cl.Shake.Enabled end
-                if cl.Shake.X       ~= nil then settings.shakeX       = cl.Shake.X       end
-                if cl.Shake.Y       ~= nil then settings.shakeY       = cl.Shake.Y       end
+    local cl = CFG.CamLock
+    if cl then
+        if cl.Key         ~= nil then settings.key         = cl.Key         end
+        if cl.Toggle      ~= nil then settings.toggle      = cl.Toggle      end
+        if cl.Range       ~= nil then settings.range       = cl.Range       end
+        if cl.Smooth      ~= nil then settings.smooth      = cl.Smooth      end
+        if cl.StickyAim   ~= nil then settings.stickyAim   = cl.StickyAim   end
+        if cl.KnockCheck  ~= nil then settings.knockCheck  = cl.KnockCheck  end
+        if cl.TeamCheck   ~= nil then settings.teamCheck   = cl.TeamCheck   end
+        if cl.CrewCheck   ~= nil then settings.crewCheck   = cl.CrewCheck   end
+        if cl.WallCheck   ~= nil then settings.wallCheck   = cl.WallCheck   end
+        if cl.FovVisible  ~= nil then settings.fovVisible  = cl.FovVisible  end
+        if cl.FovSize     ~= nil then settings.fovSize     = cl.FovSize     end
+        if cl.PredictionX ~= nil then settings.predictionX = cl.PredictionX end
+        if cl.PredictionY ~= nil then settings.predictionY = cl.PredictionY end
+        if cl.PredictionZ ~= nil then settings.predictionZ = cl.PredictionZ end
+        if cl.AimPart     ~= nil then camlockAimPart       = cl.AimPart     end
+        if cl.Shake then
+            if cl.Shake.Enabled ~= nil then settings.shakeEnabled = cl.Shake.Enabled end
+            if cl.Shake.X       ~= nil then settings.shakeX       = cl.Shake.X       end
+            if cl.Shake.Y       ~= nil then settings.shakeY       = cl.Shake.Y       end
+        end
+        if cl.Easing then
+            if cl.Easing.Enabled          ~= nil then EasingSettings.enabled          = cl.Easing.Enabled          end
+            if cl.Easing.Style            ~= nil then EasingSettings.style            = cl.Easing.Style            end
+            if cl.Easing.Duration         ~= nil then EasingSettings.duration         = cl.Easing.Duration         end
+            if cl.Easing.BackAmplitude    ~= nil then EasingSettings.backAmplitude    = cl.Easing.BackAmplitude    end
+            if cl.Easing.ElasticAmplitude ~= nil then EasingSettings.elasticAmplitude = cl.Easing.ElasticAmplitude end
+            if cl.Easing.ElasticFrequency ~= nil then EasingSettings.elasticFrequency = cl.Easing.ElasticFrequency end
+        end
+    end
+
+    local sa = CFG.Silent
+    if sa then
+        if sa.Enabled     ~= nil then SilentAimV2.enabled     = sa.Enabled     end
+        if sa.HitChance   ~= nil then SilentAimV2.hitChance   = sa.HitChance   end
+        if sa.Prediction  ~= nil then SilentAimV2.prediction  = sa.Prediction  end
+        if sa.NearestPart ~= nil then SilentAimV2.nearestPart = sa.NearestPart end
+        if sa.CheckFOV    ~= nil then SilentAimV2.checkFOV    = sa.CheckFOV    end
+        if sa.CheckRange  ~= nil then SilentAimV2.checkRange  = sa.CheckRange  end
+        if sa.CheckKnock  ~= nil then SilentAimV2.checkKnock  = sa.CheckKnock  end
+        if sa.TeamCheck   ~= nil then SilentAimV2.teamCheck   = sa.TeamCheck   end
+        if sa.CrewCheck   ~= nil then SilentAimV2.crewCheck   = sa.CrewCheck   end
+        if sa.WallCheck   ~= nil then SilentAimV2.wallCheck   = sa.WallCheck   end
+    end
+
+    local tl = CFG.TargetLock
+    if tl then
+        if tl.Enabled     ~= nil then TargetLock.masterEnabled = tl.Enabled     end
+        if tl.Key         ~= nil then TargetLock.key           = tl.Key         end
+        if tl.ShowLine    ~= nil then TargetLock.showLine      = tl.ShowLine    end
+        if tl.ShowOutline ~= nil then TargetLock.showOutline   = tl.ShowOutline end
+        if tl.ShowToasts  ~= nil then TargetLock.showToasts    = tl.ShowToasts  end
+    end
+
+    local ml = CFG.MouseLock
+    if ml then
+        if ml.Enabled    ~= nil then MouseLock.enabled    = ml.Enabled    end
+        if ml.Key        ~= nil then MouseLock.key        = ml.Key        end
+        if ml.Toggle     ~= nil then MouseLock.toggle     = ml.Toggle     end
+        if ml.AimPart    ~= nil then MouseLock.aimPart    = ml.AimPart    end
+        if ml.Smooth     ~= nil then MouseLock.smooth     = ml.Smooth     end
+        if ml.FrameSkip  ~= nil then MouseLock.frameSkip  = ml.FrameSkip  end
+        if ml.Prediction ~= nil then MouseLock.prediction = ml.Prediction end
+        if ml.HitChance  ~= nil then MouseLock.hitChance  = ml.HitChance  end
+        if ml.CheckFOV   ~= nil then MouseLock.checkFOV   = ml.CheckFOV   end
+        if ml.FovSize    ~= nil then MouseLock.fovSize    = ml.FovSize    end
+        if ml.CheckRange ~= nil then MouseLock.checkRange = ml.CheckRange end
+        if ml.Range      ~= nil then MouseLock.range      = ml.Range      end
+        if ml.CheckKnock ~= nil then MouseLock.checkKnock = ml.CheckKnock end
+    end
+
+    local gf = CFG.GunFov
+    if gf then
+        GunProfiles.enabled  = gf.Enabled == true
+        GunProfiles._gfCFG   = gf
+        GunProfiles._gunMap  = {
+            ["[Double-Barrel SG]"] = gf.DoubleBarrel,
+            ["[Revolver]"]         = gf.Revolver,
+            ["[TacticalShotgun]"]  = gf.TacticalShotgun,
+            ["[Shotgun]"]          = gf.Shotgun,
+            ["[Rifle]"]            = gf.Rifle,
+            ["[Smg]"]              = gf.Smg,
+            ["[AK-47]"]            = gf.AK47,
+            ["[AR]"]               = gf.AR,
+            ["[Silencer]"]         = gf.Silencer,
+            ["[Pistol]"]           = gf.Pistol,
+        }
+        GunProfiles._useGunFov = true
+    end
+
+    local df = CFG.DynamicFOV
+    if df then
+        if df.Enabled          ~= nil then DynamicFOV.enabled          = df.Enabled          end
+        if df.SmoothTransition ~= nil then DynamicFOV.smoothTransition = df.SmoothTransition end
+        if df.TransitionSpeed  ~= nil then DynamicFOV.transitionSpeed  = df.TransitionSpeed  end
+        if df.ShowZoneLabel    ~= nil then DynamicFOV.showZoneLabel    = df.ShowZoneLabel    end
+        if df.Zones then
+            if df.Zones.Close  then DynamicFOV.zones.close  = { maxDist=df.Zones.Close.MaxDist,  fovSize=df.Zones.Close.FovSize  } end
+            if df.Zones.Medium then DynamicFOV.zones.medium = { maxDist=df.Zones.Medium.MaxDist, fovSize=df.Zones.Medium.FovSize } end
+            if df.Zones.Far    then DynamicFOV.zones.far    = { maxDist=df.Zones.Far.MaxDist,    fovSize=df.Zones.Far.FovSize    } end
+            if df.Zones.Sniper then DynamicFOV.zones.sniper = { maxDist=df.Zones.Sniper.MaxDist, fovSize=df.Zones.Sniper.FovSize } end
+        end
+    end
+
+    local tb = CFG.TriggerBot
+    if tb then
+        if tb.Enabled    ~= nil then TriggerBot.enabled    = tb.Enabled    end
+        if tb.Key        ~= nil then TriggerBot.key        = tb.Key        end
+        if tb.ToggleMode ~= nil then TriggerBot.toggleMode = tb.ToggleMode end
+        if tb.RequireKey ~= nil then TriggerBot.requireKey = tb.RequireKey end
+        if tb.Interval   ~= nil then TriggerBot.interval   = tb.Interval   end
+        if tb.HitboxSize ~= nil then TriggerBot.hitboxSize = tb.HitboxSize end
+        if tb.KnifeCheck ~= nil then TriggerBot.knifeCheck = tb.KnifeCheck end
+        if tb.KnockCheck ~= nil then TriggerBot.knockCheck = tb.KnockCheck end
+    end
+
+    local db = CFG.DBSniper
+    if db then
+        if db.Enabled   ~= nil then DBSniper.enabled   = db.Enabled   end
+        if db.Intensity ~= nil then DBSniper.intensity = db.Intensity end
+    end
+
+    local ts = CFG.TacticalSniper
+    if ts then
+        if ts.Enabled   ~= nil then TacticalSniper.enabled   = ts.Enabled   end
+        if ts.Intensity ~= nil then TacticalSniper.intensity = ts.Intensity end
+    end
+
+    local sp = CFG.Speed
+    if sp then
+        if sp.Enabled ~= nil then SpeedHack.enabled = sp.Enabled end
+        if sp.Speed   ~= nil then SpeedHack.speed   = sp.Speed   end
+        if sp.Key     ~= nil then SpeedHack.key     = sp.Key     end
+    end
+
+    local es = CFG.ESP
+    if es then
+        if es.Enabled       ~= nil then ESP.enabled       = es.Enabled       end
+        if es.Boxes         ~= nil then ESP.boxes         = es.Boxes         end
+        if es.Names         ~= nil then ESP.names         = es.Names         end
+        if es.HealthBars    ~= nil then ESP.healthBars    = es.HealthBars    end
+        if es.Distance      ~= nil then ESP.distance      = es.Distance      end
+        if es.Tracers       ~= nil then ESP.tracers       = es.Tracers       end
+        if es.Skeleton      ~= nil then ESP.skeleton      = es.Skeleton      end
+        if es.Chams         ~= nil then ESP.chams         = es.Chams         end
+        if es.TeamCheck     ~= nil then ESP.teamCheck     = es.TeamCheck     end
+        if es.MaxDist       ~= nil then ESP.maxDist       = es.MaxDist       end
+        if es.BoxColor      ~= nil then ESP.boxColor      = es.BoxColor      end
+        if es.TracerColor   ~= nil then ESP.tracerColor   = es.TracerColor   end
+        if es.SkeletonColor ~= nil then ESP.skeletonColor = es.SkeletonColor end
+        if es.ChamColor     ~= nil then ESP.chamColor     = es.ChamColor     end
+    end
+
+    if CFG.Whitelist then
+        for _, name in ipairs(CFG.Whitelist) do
+            for _, p in pairs(Players:GetPlayers()) do
+                if p.Name == name then Whitelist[p.UserId] = true end
             end
-            if cl.Easing then
-                if cl.Easing.Enabled          ~= nil then EasingSettings.enabled          = cl.Easing.Enabled          end
-                if cl.Easing.Style            ~= nil then EasingSettings.style            = cl.Easing.Style            end
-                if cl.Easing.Duration         ~= nil then EasingSettings.duration         = cl.Easing.Duration         end
-                if cl.Easing.BackAmplitude    ~= nil then EasingSettings.backAmplitude    = cl.Easing.BackAmplitude    end
-                if cl.Easing.ElasticAmplitude ~= nil then EasingSettings.elasticAmplitude = cl.Easing.ElasticAmplitude end
-                if cl.Easing.ElasticFrequency ~= nil then EasingSettings.elasticFrequency = cl.Easing.ElasticFrequency end
+            Players.PlayerAdded:Connect(function(p)
+                if p.Name == name then Whitelist[p.UserId] = true end
+            end)
+        end
+    end
+
+    if CFG.Blacklist then
+        for _, name in ipairs(CFG.Blacklist) do
+            for _, p in pairs(Players:GetPlayers()) do
+                if p.Name == name then Blacklist[p.UserId] = true end
             end
+            Players.PlayerAdded:Connect(function(p)
+                if p.Name == name then Blacklist[p.UserId] = true end
+            end)
         end
-
-        -- ── Silent Aim ───────────────────────────────────────────
-        local sa = CFG.Silent
-        if sa then
-            if sa.Enabled     ~= nil then SilentAimV2.enabled     = sa.Enabled     end
-            if sa.HitChance   ~= nil then SilentAimV2.hitChance   = sa.HitChance   end
-            if sa.Prediction  ~= nil then SilentAimV2.prediction  = sa.Prediction  end
-            if sa.NearestPart ~= nil then SilentAimV2.nearestPart = sa.NearestPart end
-            if sa.CheckFOV    ~= nil then SilentAimV2.checkFOV    = sa.CheckFOV    end
-            if sa.CheckRange  ~= nil then SilentAimV2.checkRange  = sa.CheckRange  end
-            if sa.CheckKnock  ~= nil then SilentAimV2.checkKnock  = sa.CheckKnock  end
-            if sa.TeamCheck   ~= nil then SilentAimV2.teamCheck   = sa.TeamCheck   end
-            if sa.CrewCheck   ~= nil then SilentAimV2.crewCheck   = sa.CrewCheck   end
-            if sa.WallCheck   ~= nil then SilentAimV2.wallCheck   = sa.WallCheck   end
-        end
-
-        -- ── Target Lock ──────────────────────────────────────────
-        local tl = CFG.TargetLock
-        if tl then
-            if tl.Enabled     ~= nil then TargetLock.masterEnabled = tl.Enabled     end
-            if tl.Key         ~= nil then TargetLock.key           = tl.Key         end
-            if tl.ShowLine    ~= nil then TargetLock.showLine      = tl.ShowLine    end
-            if tl.ShowOutline ~= nil then TargetLock.showOutline   = tl.ShowOutline end
-            if tl.ShowToasts  ~= nil then TargetLock.showToasts    = tl.ShowToasts  end
-        end
-
-        -- ── Mouse Lock ───────────────────────────────────────────
-        local ml = CFG.MouseLock
-        if ml then
-            if ml.Enabled    ~= nil then MouseLock.enabled    = ml.Enabled    end
-            if ml.Key        ~= nil then MouseLock.key        = ml.Key        end
-            if ml.Toggle     ~= nil then MouseLock.toggle     = ml.Toggle     end
-            if ml.AimPart    ~= nil then MouseLock.aimPart    = ml.AimPart    end
-            if ml.Smooth     ~= nil then MouseLock.smooth     = ml.Smooth     end
-            if ml.FrameSkip  ~= nil then MouseLock.frameSkip  = ml.FrameSkip  end
-            if ml.Prediction ~= nil then MouseLock.prediction = ml.Prediction end
-            if ml.HitChance  ~= nil then MouseLock.hitChance  = ml.HitChance  end
-            if ml.CheckFOV   ~= nil then MouseLock.checkFOV   = ml.CheckFOV   end
-            if ml.FovSize    ~= nil then MouseLock.fovSize    = ml.FovSize    end
-            if ml.CheckRange ~= nil then MouseLock.checkRange = ml.CheckRange end
-            if ml.Range      ~= nil then MouseLock.range      = ml.Range      end
-            if ml.CheckKnock ~= nil then MouseLock.checkKnock = ml.CheckKnock end
-        end
-
-        -- ── GunFov (full Shhhh-style system) ────────────────────
-        local gf = CFG.GunFov
-        if gf then
-            GunProfiles.enabled = gf.Enabled == true
-            -- Build internal profiles from the GunFov table
-            -- Priority: Range (if enabled) → AirShot (if enabled) → Default
-            -- At runtime applyGunProfile() picks the right row based on distance/airshot
-            local gunMap = {
-                ["[Double-Barrel SG]"] = gf.DoubleBarrel,
-                ["[Revolver]"]         = gf.Revolver,
-                ["[TacticalShotgun]"]  = gf.TacticalShotgun,
-                ["[Shotgun]"]          = gf.Shotgun,
-                ["[Rifle]"]            = gf.Rifle,
-                ["[Smg]"]              = gf.Smg,
-                ["[AK-47]"]            = gf.AK47,
-                ["[AR]"]               = gf.AR,
-                ["[Silencer]"]         = gf.Silencer,
-                ["[Pistol]"]           = gf.Pistol,
-            }
-            -- Store the full GunFov config so applyGunProfile can use it at runtime
-            GunProfiles._gfCFG   = gf
-            GunProfiles._gunMap  = gunMap
-            -- Override applyGunProfile to use the full GunFov logic
-            GunProfiles._useGunFov = true
-        end
-
-        -- ── DynamicFOV ───────────────────────────────────────────
-        local df = CFG.DynamicFOV
-        if df then
-            if df.Enabled          ~= nil then DynamicFOV.enabled          = df.Enabled          end
-            if df.SmoothTransition ~= nil then DynamicFOV.smoothTransition = df.SmoothTransition end
-            if df.TransitionSpeed  ~= nil then DynamicFOV.transitionSpeed  = df.TransitionSpeed  end
-            if df.ShowZoneLabel    ~= nil then DynamicFOV.showZoneLabel    = df.ShowZoneLabel    end
-            if df.Zones then
-                if df.Zones.Close  then DynamicFOV.zones.close  = { maxDist=df.Zones.Close.MaxDist,  fovSize=df.Zones.Close.FovSize  } end
-                if df.Zones.Medium then DynamicFOV.zones.medium = { maxDist=df.Zones.Medium.MaxDist, fovSize=df.Zones.Medium.FovSize } end
-                if df.Zones.Far    then DynamicFOV.zones.far    = { maxDist=df.Zones.Far.MaxDist,    fovSize=df.Zones.Far.FovSize    } end
-                if df.Zones.Sniper then DynamicFOV.zones.sniper = { maxDist=df.Zones.Sniper.MaxDist, fovSize=df.Zones.Sniper.FovSize } end
-            end
-        end
-
-        -- ── TriggerBot ───────────────────────────────────────────
-        local tb = CFG.TriggerBot
-        if tb then
-            if tb.Enabled    ~= nil then TriggerBot.enabled    = tb.Enabled    end
-            if tb.Key        ~= nil then TriggerBot.key        = tb.Key        end
-            if tb.ToggleMode ~= nil then TriggerBot.toggleMode = tb.ToggleMode end
-            if tb.RequireKey ~= nil then TriggerBot.requireKey = tb.RequireKey end
-            if tb.Interval   ~= nil then TriggerBot.interval   = tb.Interval   end
-            if tb.HitboxSize ~= nil then TriggerBot.hitboxSize = tb.HitboxSize end
-            if tb.KnifeCheck ~= nil then TriggerBot.knifeCheck = tb.KnifeCheck end
-            if tb.KnockCheck ~= nil then TriggerBot.knockCheck = tb.KnockCheck end
-        end
-
-        -- ── DB / Tactical Sniper ─────────────────────────────────
-        local db = CFG.DBSniper
-        if db then
-            if db.Enabled   ~= nil then DBSniper.enabled   = db.Enabled   end
-            if db.Intensity ~= nil then DBSniper.intensity = db.Intensity end
-        end
-        local ts = CFG.TacticalSniper
-        if ts then
-            if ts.Enabled   ~= nil then TacticalSniper.enabled   = ts.Enabled   end
-            if ts.Intensity ~= nil then TacticalSniper.intensity = ts.Intensity end
-        end
-
-        -- ── Speed ────────────────────────────────────────────────
-        local sp = CFG.Speed
-        if sp then
-            if sp.Enabled ~= nil then SpeedHack.enabled = sp.Enabled end
-            if sp.Speed   ~= nil then SpeedHack.speed   = sp.Speed   end
-            if sp.Key     ~= nil then SpeedHack.key     = sp.Key     end
-        end
-
-        -- ── ESP ──────────────────────────────────────────────────
-        local es = CFG.ESP
-        if es then
-            if es.Enabled       ~= nil then ESP.enabled       = es.Enabled       end
-            if es.Boxes         ~= nil then ESP.boxes         = es.Boxes         end
-            if es.Names         ~= nil then ESP.names         = es.Names         end
-            if es.HealthBars    ~= nil then ESP.healthBars    = es.HealthBars    end
-            if es.Distance      ~= nil then ESP.distance      = es.Distance      end
-            if es.Tracers       ~= nil then ESP.tracers       = es.Tracers       end
-            if es.Skeleton      ~= nil then ESP.skeleton      = es.Skeleton      end
-            if es.Chams         ~= nil then ESP.chams         = es.Chams         end
-            if es.TeamCheck     ~= nil then ESP.teamCheck     = es.TeamCheck     end
-            if es.MaxDist       ~= nil then ESP.maxDist       = es.MaxDist       end
-            if es.BoxColor      ~= nil then ESP.boxColor      = es.BoxColor      end
-            if es.TracerColor   ~= nil then ESP.tracerColor   = es.TracerColor   end
-            if es.SkeletonColor ~= nil then ESP.skeletonColor = es.SkeletonColor end
-            if es.ChamColor     ~= nil then ESP.chamColor     = es.ChamColor     end
-        end
-
-        -- ── Whitelist / Blacklist ────────────────────────────────
-        if CFG.Whitelist then
-            for _, name in ipairs(CFG.Whitelist) do
-                for _, p in pairs(Players:GetPlayers()) do
-                    if p.Name == name then Whitelist[p.UserId] = true end
-                end
-                -- also hook future joins
-                Players.PlayerAdded:Connect(function(p)
-                    if p.Name == name then Whitelist[p.UserId] = true end
-                end)
-            end
-        end
-        if CFG.Blacklist then
-            for _, name in ipairs(CFG.Blacklist) do
-                for _, p in pairs(Players:GetPlayers()) do
-                    if p.Name == name then Blacklist[p.UserId] = true end
-                end
-                Players.PlayerAdded:Connect(function(p)
-                    if p.Name == name then Blacklist[p.UserId] = true end
-                end)
-            end
-        end
-
     end
 end
-
-
+_loadConfig()
 
 local espObjects = {}  -- [character] = { box, nameLabel, healthBar, distLabel, tracer, bones[], highlight }
 

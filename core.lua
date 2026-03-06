@@ -9,7 +9,7 @@ local TweenService = game:GetService("TweenService")
 
 local lp = Players.LocalPlayer
 local cam = workspace.CurrentCamera
-local gui = lp:WaitForChild("PlayerGui")
+local gui = (gethui and gethui()) or lp:WaitForChild("PlayerGui")
 
 local isAiming = false
 local target = nil
@@ -77,7 +77,113 @@ local settings = {
     predictionY = 0,
     predictionZ = 0,
     knockCheck  = false,
+    teamCheck   = false,   -- skip teammates
+    crewCheck   = false,   -- skip crew members
+    wallCheck   = false,   -- pause lock when target behind wall
+    -- Shake: random camera jitter when locked on target
+    shakeEnabled = false,
+    shakeX       = 0.003,  -- horizontal shake magnitude
+    shakeY       = 0.003,  -- vertical shake magnitude
 }
+
+-- GunProfiles: per-gun FOV, prediction, smoothness overrides
+local GunProfiles = {
+    enabled = false,
+    -- Gun name → { fovSize, predictionX, predictionY, predictionZ, smooth }
+    -- All values are nil = use global setting
+    profiles = {
+        ["[Double-Barrel SG]"]    = { fovSize=120, predictionX=0.12, predictionY=0, predictionZ=0.12, smooth=0.25 },
+        ["[Revolver]"]            = { fovSize=100, predictionX=0.10, predictionY=0, predictionZ=0.10, smooth=0.18 },
+        ["[TacticalShotgun]"]     = { fovSize=110, predictionX=0.11, predictionY=0, predictionZ=0.11, smooth=0.22 },
+        ["[Shotgun]"]             = { fovSize=130, predictionX=0.12, predictionY=0, predictionZ=0.12, smooth=0.28 },
+        ["[Rifle]"]               = { fovSize=80,  predictionX=0.13, predictionY=0, predictionZ=0.13, smooth=0.14 },
+        ["[Smg]"]                 = { fovSize=90,  predictionX=0.11, predictionY=0, predictionZ=0.11, smooth=0.16 },
+        ["[AK-47]"]               = { fovSize=85,  predictionX=0.13, predictionY=0, predictionZ=0.13, smooth=0.15 },
+        ["[AR]"]                  = { fovSize=85,  predictionX=0.13, predictionY=0, predictionZ=0.13, smooth=0.15 },
+        ["[Silencer]"]            = { fovSize=90,  predictionX=0.10, predictionY=0, predictionZ=0.10, smooth=0.14 },
+        ["[Pistol]"]              = { fovSize=110, predictionX=0.09, predictionY=0, predictionZ=0.09, smooth=0.20 },
+    },
+    _active = nil,  -- current profile name
+}
+
+-- Apply active gun profile values (called each frame when tool changes)
+-- Supports both simple profiles AND full GunFov (Default/AirShot/Range) system
+local function applyGunProfile(toolName)
+    if not GunProfiles.enabled then GunProfiles._active = nil; return end
+    GunProfiles._active = toolName
+
+    -- Full GunFov system (loaded from config table)
+    if GunProfiles._useGunFov and GunProfiles._gfCFG and GunProfiles._gunMap then
+        local gf  = GunProfiles._gfCFG
+        local gun = GunProfiles._gunMap[toolName]
+        if not gun then return end
+
+        -- Determine distance to nearest target for range selection
+        local myHRP = char and char:FindFirstChild("HumanoidRootPart")
+        local dist  = math.huge
+        if myHRP then
+            for _, e in pairs(getAllEnemyChars and getAllEnemyChars() or {}) do
+                if e.hrp then
+                    local d = (myHRP.Position - e.hrp.Position).Magnitude
+                    if d < dist then dist = d end
+                end
+            end
+        end
+
+        -- Check if any target is in the air (airshot)
+        local inAir = false
+        if myHRP then
+            for _, e in pairs(getAllEnemyChars and getAllEnemyChars() or {}) do
+                if e.char then
+                    local hum = e.char:FindFirstChildOfClass("Humanoid")
+                    if hum and hum:GetState() == Enum.HumanoidStateType.Freefall then
+                        inAir = true; break
+                    end
+                end
+            end
+        end
+
+        local prefix = ""
+        if gf.Range and dist ~= math.huge then
+            if dist <= gf.Close then
+                prefix = "Close_"
+            elseif dist <= gf.Mid then
+                prefix = "Mid_"
+            else
+                prefix = "Far_"
+            end
+        elseif gf.AirShot and inAir then
+            prefix = "AirShot_"
+        end
+        -- fallback to Default if Range/AirShot disabled
+        if prefix == "" and not gf.Default then return end
+
+        local fov  = gun[prefix.."Fov"]
+        local pred = gun[prefix.."Prediction"]
+        local hc   = gun[prefix.."HitChance"]
+        local sm   = gun[prefix.."Smoothness"]
+
+        if gf.Fov        and fov  then settings.fovSize    = fov  end
+        if gf.Prediction and pred then
+            settings.predictionX = pred
+            settings.predictionY = 0
+            settings.predictionZ = pred
+        end
+        if gf.HitChance  and hc   then SilentAimV2.hitChance = hc end
+        if gf.Smoothness and sm   then settings.smooth = sm        end
+        return
+    end
+
+    -- Simple profiles fallback
+    local p = GunProfiles.profiles[toolName]
+    if p then
+        if p.fovSize     then settings.fovSize    = p.fovSize     end
+        if p.predictionX then settings.predictionX = p.predictionX end
+        if p.predictionY then settings.predictionY = p.predictionY end
+        if p.predictionZ then settings.predictionZ = p.predictionZ end
+        if p.smooth      then settings.smooth      = p.smooth      end
+    end
+end
 
 local DBSniper        = { enabled = false, intensity = 0 }
 local TacticalSniper  = { enabled = false, intensity = 0 }
@@ -335,6 +441,12 @@ end
 local function aimAt(targetChar, dt)
     if not targetChar then return end
 
+    -- Wall check: if enabled, pause camera movement when target behind wall
+    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+    if settings.wallCheck and targetHRP and not isVisible(targetHRP) then
+        return  -- pause, do NOT clear target — resumes when wall removed
+    end
+
     -- Pick aim bone from selected part, fallback chain
     local bone = targetChar:FindFirstChild(camlockAimPart)
     if not bone then
@@ -436,7 +548,14 @@ local predZ = settings.predictionZ
         local newDir = currentDir:Lerp(targetDir, alpha)
 
         if newDir.Magnitude > 0.0001 then
-            cam.CFrame = CFrame.new(camPos, camPos + newDir.Unit)
+            local newCF = CFrame.new(camPos, camPos + newDir.Unit)
+            -- Shake: apply random angular jitter when enabled
+            if settings.shakeEnabled then
+                local sx = (math.random() - 0.5) * 2 * settings.shakeX
+                local sy = (math.random() - 0.5) * 2 * settings.shakeY
+                newCF = newCF * CFrame.Angles(sy, sx, 0)
+            end
+            cam.CFrame = newCF
         end
     end
 end
@@ -470,6 +589,57 @@ local function isTargetValid(hrp, character)
     if not hum or hum.Health <= 0 then return false end
     if isKnockedOrDead(character) then return false end
     return true
+end
+
+-- Wall check: raycast from camera to target HRP, returns true if target visible (no wall)
+local _wallParams = RaycastParams.new()
+_wallParams.FilterType = Enum.RaycastFilterType.Exclude
+local function isVisible(targetHRP)
+    if not targetHRP then return false end
+    local myChar = char
+    local exclude = {workspace.Terrain}
+    if myChar then table.insert(exclude, myChar) end
+    -- also exclude target character so ray doesn't hit their own parts
+    if targetHRP.Parent then table.insert(exclude, targetHRP.Parent) end
+    _wallParams.FilterDescendantsInstances = exclude
+    local origin = cam.CFrame.Position
+    local dir    = targetHRP.Position - origin
+    local result = workspace:Raycast(origin, dir, _wallParams)
+    -- If ray hits nothing = clear line of sight
+    -- If ray hits something that is a descendant of target = also clear
+    if not result then return true end
+    return false
+end
+
+-- Team check: returns true if character is on our team
+local function isSameTeam(character)
+    if not character then return false end
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= lp and p.Character == character then
+            return lp.Team ~= nil and p.Team == lp.Team
+        end
+    end
+    return false
+end
+
+-- Crew check: Da Hood stores crew in a StringValue "CrewTag" under the player
+local function isSameCrew(character)
+    if not character then return false end
+    local myCrewTag = nil
+    local myData = lp:FindFirstChild("leaderstats") or lp:FindFirstChild("PlayerData")
+    -- Da Hood uses a "CrewTag" StringValue directly under the player
+    local myTag = lp:FindFirstChild("CrewTag")
+    if myTag then myCrewTag = myTag.Value end
+    if not myCrewTag or myCrewTag == "" then return false end
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= lp and p.Character == character then
+            local tag = p:FindFirstChild("CrewTag")
+            if tag and tag.Value ~= "" and tag.Value == myCrewTag then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 -- NPC version: skip Anchored check (Da Track moves bots via scripts not physics)
@@ -566,53 +736,121 @@ local function _uicorner(p, r)
     local c = Instance.new("UICorner", p); c.CornerRadius = UDim.new(0, r or 3)
 end
 
-local TOAST_BLUE = Color3.fromRGB(58, 90, 160)
+local TOAST_BLUE    = Color3.fromRGB(58,  100, 200)
+local TOAST_GREEN   = Color3.fromRGB(50,  200, 100)
+local TOAST_RED     = Color3.fromRGB(220, 50,  50)
+local TOAST_YELLOW  = Color3.fromRGB(230, 180, 30)
+local TOAST_PURPLE  = Color3.fromRGB(160, 60,  255)
 
-local function showToast(msg, color)
-    color = color or TOAST_BLUE
+-- Active toasts for stacking
+local _activeToasts = {}
+local TOAST_W    = 260
+local TOAST_H    = 52
+local TOAST_GAP  = 6
+local TOAST_MARGIN_X = 16
+local TOAST_MARGIN_Y = 16
+
+local function _repositionToasts()
     local vp = cam.ViewportSize
-    local W, H = 240, 44
-    local MARGIN = 14
+    for i, t in ipairs(_activeToasts) do
+        local yTarget = vp.Y - TOAST_MARGIN_Y - (i - 1) * (TOAST_H + TOAST_GAP) - TOAST_H
+        TweenService:Create(t, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {Position = UDim2.new(0, vp.X - TOAST_MARGIN_X - TOAST_W, 0, yTarget)}):Play()
+    end
+end
+
+-- showToast(title, body, color, icon)
+-- For backwards compat, if body is nil then title IS the full message
+local function showToast(title, body, color, icon)
+    -- backwards compat: old calls pass (msg, color)
+    if type(body) == "userdata" or body == nil then
+        -- called as showToast(msg, color)
+        color = body or color or TOAST_BLUE
+        body  = nil
+    end
+    color = color or TOAST_BLUE
+    icon  = icon  or "●"
+
+    local vp = cam.ViewportSize
+    local xPos = vp.X - TOAST_MARGIN_X - TOAST_W
 
     local toast = Instance.new("Frame", toastGui)
-    toast.Size          = UDim2.new(0, W, 0, H)
-    toast.Position      = UDim2.new(0, vp.X - MARGIN, 0, vp.Y - MARGIN)  -- offscreen bottom-right
-    toast.AnchorPoint   = Vector2.new(1, 1)
-    toast.BackgroundColor3 = Color3.fromRGB(14, 18, 30)
+    toast.Size            = UDim2.new(0, TOAST_W, 0, TOAST_H)
+    toast.BackgroundColor3 = Color3.fromRGB(12, 15, 25)
     toast.BorderSizePixel  = 0
-    -- NO UICorner — bordes rectos
-    local stroke = Instance.new("UIStroke", toast)
-    stroke.Color     = color
-    stroke.Thickness = 1.5
-    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    toast.Position         = UDim2.new(0, xPos, 0, vp.Y + TOAST_H + 10)
+    Instance.new("UICorner", toast).CornerRadius = UDim.new(0, 4)
 
-    -- Barra de acento izquierda
+    -- Left accent bar
     local bar = Instance.new("Frame", toast)
-    bar.Size              = UDim2.new(0, 3, 1, 0)
-    bar.BackgroundColor3  = color
-    bar.BorderSizePixel   = 0
+    bar.Size             = UDim2.new(0, 3, 1, -8)
+    bar.Position         = UDim2.new(0, 0, 0, 4)
+    bar.BackgroundColor3 = color
+    bar.BorderSizePixel  = 0
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 2)
 
-    local lbl = Instance.new("TextLabel", toast)
-    lbl.Size               = UDim2.new(1, -14, 1, 0)
-    lbl.Position           = UDim2.new(0, 10, 0, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text               = msg
-    lbl.Font               = Enum.Font.GothamBold
-    lbl.TextSize           = 12
-    lbl.TextColor3         = Color3.new(1, 1, 1)
-    lbl.TextXAlignment     = Enum.TextXAlignment.Left
-    lbl.TextWrapped        = true
+    -- Icon dot
+    local iconLbl = Instance.new("TextLabel", toast)
+    iconLbl.Size               = UDim2.new(0, 18, 0, 18)
+    iconLbl.Position           = UDim2.new(0, 10, 0.5, -9)
+    iconLbl.BackgroundTransparency = 1
+    iconLbl.Text               = icon
+    iconLbl.Font               = Enum.Font.GothamBold
+    iconLbl.TextSize           = 14
+    iconLbl.TextColor3         = color
 
-    -- Slide in desde abajo
-    local yIn  = vp.Y - MARGIN
-    local yOut = vp.Y + H + 10
-    toast.Position = UDim2.new(0, vp.X - MARGIN, 0, yOut)
-    TweenService:Create(toast, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        {Position = UDim2.new(0, vp.X - MARGIN, 0, yIn)}):Play()
-    task.delay(2.5, function()
-        TweenService:Create(toast, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-            {Position = UDim2.new(0, vp.X - MARGIN, 0, yOut)}):Play()
-        task.delay(0.25, function() toast:Destroy() end)
+    if body then
+        -- Title + body layout
+        local titleLbl = Instance.new("TextLabel", toast)
+        titleLbl.Size              = UDim2.new(1, -36, 0, 18)
+        titleLbl.Position          = UDim2.new(0, 32, 0, 8)
+        titleLbl.BackgroundTransparency = 1
+        titleLbl.Text              = title
+        titleLbl.Font              = Enum.Font.GothamBold
+        titleLbl.TextSize          = 12
+        titleLbl.TextColor3        = Color3.new(1, 1, 1)
+        titleLbl.TextXAlignment    = Enum.TextXAlignment.Left
+        titleLbl.TextTruncate      = Enum.TextTruncate.AtEnd
+
+        local bodyLbl = Instance.new("TextLabel", toast)
+        bodyLbl.Size               = UDim2.new(1, -36, 0, 16)
+        bodyLbl.Position           = UDim2.new(0, 32, 0, 28)
+        bodyLbl.BackgroundTransparency = 1
+        bodyLbl.Text               = body
+        bodyLbl.Font               = Enum.Font.Gotham
+        bodyLbl.TextSize           = 11
+        bodyLbl.TextColor3         = Color3.fromRGB(160, 160, 175)
+        bodyLbl.TextXAlignment     = Enum.TextXAlignment.Left
+        bodyLbl.TextTruncate       = Enum.TextTruncate.AtEnd
+    else
+        -- Single line
+        local lbl = Instance.new("TextLabel", toast)
+        lbl.Size               = UDim2.new(1, -36, 1, 0)
+        lbl.Position           = UDim2.new(0, 32, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text               = title
+        lbl.Font               = Enum.Font.GothamBold
+        lbl.TextSize           = 12
+        lbl.TextColor3         = Color3.new(1, 1, 1)
+        lbl.TextXAlignment     = Enum.TextXAlignment.Left
+        lbl.TextWrapped        = true
+    end
+
+    table.insert(_activeToasts, 1, toast)
+    _repositionToasts()
+
+    task.delay(2.8, function()
+        -- Slide out to right
+        local vp2 = cam.ViewportSize
+        TweenService:Create(toast, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+            {Position = UDim2.new(0, vp2.X + 10, 0, toast.Position.Y.Offset)}):Play()
+        task.delay(0.2, function()
+            toast:Destroy()
+            for i, t in ipairs(_activeToasts) do
+                if t == toast then table.remove(_activeToasts, i); break end
+            end
+            _repositionToasts()
+        end)
     end)
 end
 
@@ -796,14 +1034,18 @@ local function getBestTarget()
     for _, e in pairs(getAllEnemyChars()) do
         local c, hrp = e.char, e.hrp
         local valid = e.isNPC and isTargetValidNPC(hrp, c) or isTargetValid(hrp, c)
-        if valid and not (settings.knockCheck and isKnockedOrDead(c)) then
-            if (root.Position - hrp.Position).Magnitude <= settings.range then
-                local sp, onS = cam:WorldToViewportPoint(hrp.Position)
-                if onS then
-                    local sd = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if sd <= settings.fovSize / 2 and sd < bestDist then
-                        bestDist = sd; best = c
-                    end
+        if not valid then continue end
+        if settings.knockCheck and isKnockedOrDead(c) then continue end
+        if settings.teamCheck  and isSameTeam(c) then continue end
+        if settings.crewCheck  and isSameCrew(c) then continue end
+        if (root.Position - hrp.Position).Magnitude <= settings.range then
+            -- Wall check: skip if target behind wall (but only for picking new target)
+            if settings.wallCheck and not isVisible(hrp) then continue end
+            local sp, onS = cam:WorldToViewportPoint(hrp.Position)
+            if onS then
+                local sd = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                if sd <= settings.fovSize / 2 and sd < bestDist then
+                    bestDist = sd; best = c
                 end
             end
         end
@@ -945,6 +1187,20 @@ RunService.RenderStepped:Connect(function()
     if hum then hum.WalkSpeed = SpeedHack.speed end
 end)
 
+-- Gun Profile: detect equipped tool and apply matching profile
+local _lastToolName = nil
+RunService.Heartbeat:Connect(function()
+    if not GunProfiles.enabled then return end
+    local tool = lp.Character and lp.Character:FindFirstChildOfClass("Tool")
+    local name = tool and tool.Name or nil
+    if name ~= _lastToolName then
+        _lastToolName = name
+        if name then
+            applyGunProfile(name)
+        end
+    end
+end)
+
 UserInputService.InputBegan:Connect(function(inp, gp)
     if gp then return end
     if SpeedHack.key == nil then return end
@@ -1018,15 +1274,18 @@ lp.CharacterAdded:Connect(function(c) char = c; if Fly.enabled then task.wait(0.
 -- ================================================================
 local SilentAimV2 = {
     enabled      = false,
-    hitChance    = 100,      -- 1-100 %
+    hitChance    = 100,
     checkFOV     = false,
     checkRange   = false,
     checkKnock   = false,
-    nearestPart  = false,    -- aim nearest visible bone instead of Head
-    prediction   = 0.112,   -- velocity lead (0 = off, 0.112 = default)
-    cachedPart   = nil,      -- BasePart  → returned as Mouse.Target
-    cachedCFrame = nil,      -- CFrame    → returned as Mouse.Hit
-    cachedChar   = nil,      -- for UI status display
+    nearestPart  = false,
+    prediction   = 0.112,
+    teamCheck    = false,    -- skip teammates
+    crewCheck    = false,    -- skip crew members
+    wallCheck    = false,    -- skip targets behind walls
+    cachedPart   = nil,
+    cachedCFrame = nil,
+    cachedChar   = nil,
 }
 
 -- All body bones, R15 first then R6 fallbacks
@@ -1088,12 +1347,16 @@ local function _getSilentTarget()
 
         local valid = e.isNPC and isTargetValidNPC(hrp, c) or isTargetValid(hrp, c)
         if not valid then continue end
-        if SilentAimV2.checkKnock and _isDaHoodKO(c) then continue end
+        if SilentAimV2.checkKnock and _isDaHoodKO(c)  then continue end
+        if SilentAimV2.teamCheck  and isSameTeam(c)    then continue end
+        if SilentAimV2.crewCheck  and isSameCrew(c)    then continue end
         if SilentAimV2.checkRange and
            (myHRP.Position - hrp.Position).Magnitude > settings.range then continue end
+        -- Wall check: skip if target behind a wall
+        if SilentAimV2.wallCheck and not isVisible(hrp) then continue end
 
         local _, sd = _bestPart(c)
-        if sd >= math.huge then continue end              -- no bone on screen
+        if sd >= math.huge then continue end
         if SilentAimV2.checkFOV and sd > fovR then continue end
         if sd < bestD then bestD = sd; best = c end
     end
@@ -1403,42 +1666,28 @@ end
 -- ── Helpers (reuse _PARTS / _bestPart from Silent Aim) ───────────────────
 
 local function _mlGetTarget()
-    -- Pinned target always wins
     if pinnedTarget and pinnedTarget.Parent then
         if not isKnockedOrDead(pinnedTarget) then return pinnedTarget end
     end
     local myHRP = char and char:FindFirstChild("HumanoidRootPart")
     if not myHRP then return nil end
 
-    local mp   = UserInputService:GetMouseLocation()
-    local fovR = MouseLock.fovSize / 2
-    local best, bestScore = nil, math.huge
+    local fovR  = MouseLock.fovSize / 2
+    local best, bestD = nil, math.huge
 
     for _, e in pairs(getAllEnemyChars()) do
         local c, hrp = e.char, e.hrp
         if not c or not hrp then continue end
-        if MouseLock.checkKnock and isKnockedOrDead(c) then continue end
+        local valid = e.isNPC and isTargetValidNPC(hrp, c) or isTargetValid(hrp, c)
+        if not valid then continue end
+        if MouseLock.checkKnock  and isKnockedOrDead(c) then continue end
+        if MouseLock.checkRange  and
+           (myHRP.Position - hrp.Position).Magnitude > MouseLock.range then continue end
 
-        -- Range check uses 3D distance — works in any direction
-        local dist3D = (myHRP.Position - hrp.Position).Magnitude
-        if MouseLock.checkRange and dist3D > MouseLock.range then continue end
-
-        -- FOV check: if enabled, only count targets visible on screen
-        -- If disabled, accept targets anywhere (including behind camera)
-        local score
-        local sp = cam:WorldToViewportPoint(hrp.Position)
-        if sp.Z > 0 then
-            -- On screen: score = pixel distance to cursor (lower = better)
-            score = (Vector2.new(sp.X, sp.Y) - mp).Magnitude
-            if MouseLock.checkFOV and score > fovR then continue end
-        else
-            -- Behind camera: only consider if FOV check is OFF
-            if MouseLock.checkFOV then continue end
-            -- Score: high penalty + 3D distance so on-screen targets win
-            score = 99999 + dist3D
-        end
-
-        if score < bestScore then bestScore = score; best = c end
+        local _, sd = _bestPart(c)
+        if sd >= math.huge then continue end
+        if MouseLock.checkFOV and sd > fovR then continue end
+        if sd < bestD then bestD = sd; best = c end
     end
     return best
 end
@@ -1446,10 +1695,7 @@ end
 local function _mlResolvePart(tc)
     if not tc then return nil end
     if MouseLock.aimPart == "Nearest" then
-        -- _bestPart only works on-screen; fall back to Head if off-screen
-        local bp, bd = _bestPart(tc)
-        if bp then return bp end
-        return tc:FindFirstChild("Head") or tc:FindFirstChild("HumanoidRootPart")
+        return _bestPart(tc)
     elseif MouseLock.aimPart == "HumanoidRootPart" then
         return tc:FindFirstChild("HumanoidRootPart")
     else
@@ -1490,7 +1736,16 @@ RunService.RenderStepped:Connect(function()
         return
     end
 
-    -- Velocity prediction (no visibility gate — works off-camera too)
+    -- Visibility
+    local ok, sp = pcall(cam.WorldToViewportPoint, cam, bp.Position)
+    if not ok or sp.Z <= 0.5 then
+        MouseLock.cachedPart   = nil
+        MouseLock.cachedCFrame = nil
+        MouseLock.cachedChar   = nil
+        return
+    end
+
+    -- Velocity prediction
     local aimPos = bp.Position
     if MouseLock.prediction > 0 then
         local vel = Vector3.zero
@@ -2018,15 +2273,15 @@ UserInputService.InputBegan:Connect(function(inp, gp)
         if best then
             tlLockOn(best)
             if TargetLock.showToasts then
-                pcall(showToast, "locked  " .. (displayName or "?"), TOAST_BLUE)
+                pcall(showToast, "Target Lock", "locked → " .. (displayName or "?"), TOAST_BLUE, "🔒")
             end
         else
             TargetLock.enabled = false
-            if TargetLock.showToasts then pcall(showToast, "no target near cursor", Color3.fromRGB(200, 60, 60)) end
+            if TargetLock.showToasts then pcall(showToast, "Target Lock", "no target found near cursor", TOAST_RED, "🔒") end
         end
     else
         tlLockOn(nil)
-        if TargetLock.showToasts then pcall(showToast, "target lock off", Color3.fromRGB(80, 80, 100)) end
+        if TargetLock.showToasts then pcall(showToast, "Target Lock", "released", TOAST_PURPLE, "🔓") end
     end
 end)
 
@@ -2372,6 +2627,191 @@ local ESP = {
     skeletonColor = Color3.fromRGB(255, 255, 255),
     chamColor   = Color3.fromRGB(255, 50, 50),
 }
+
+-- ================================================================
+-- CONFIG READER
+-- ================================================================
+local function _loadConfig()
+    local CFG = getgenv and getgenv().PROTO
+    if not CFG then return end
+
+    local cl = CFG.CamLock
+    if cl then
+        if cl.Key         ~= nil then settings.key         = cl.Key         end
+        if cl.Toggle      ~= nil then settings.toggle      = cl.Toggle      end
+        if cl.Range       ~= nil then settings.range       = cl.Range       end
+        if cl.Smooth      ~= nil then settings.smooth      = cl.Smooth      end
+        if cl.StickyAim   ~= nil then settings.stickyAim   = cl.StickyAim   end
+        if cl.KnockCheck  ~= nil then settings.knockCheck  = cl.KnockCheck  end
+        if cl.TeamCheck   ~= nil then settings.teamCheck   = cl.TeamCheck   end
+        if cl.CrewCheck   ~= nil then settings.crewCheck   = cl.CrewCheck   end
+        if cl.WallCheck   ~= nil then settings.wallCheck   = cl.WallCheck   end
+        if cl.FovVisible  ~= nil then settings.fovVisible  = cl.FovVisible  end
+        if cl.FovSize     ~= nil then settings.fovSize     = cl.FovSize     end
+        if cl.PredictionX ~= nil then settings.predictionX = cl.PredictionX end
+        if cl.PredictionY ~= nil then settings.predictionY = cl.PredictionY end
+        if cl.PredictionZ ~= nil then settings.predictionZ = cl.PredictionZ end
+        if cl.AimPart     ~= nil then camlockAimPart       = cl.AimPart     end
+        if cl.Shake then
+            if cl.Shake.Enabled ~= nil then settings.shakeEnabled = cl.Shake.Enabled end
+            if cl.Shake.X       ~= nil then settings.shakeX       = cl.Shake.X       end
+            if cl.Shake.Y       ~= nil then settings.shakeY       = cl.Shake.Y       end
+        end
+        if cl.Easing then
+            if cl.Easing.Enabled          ~= nil then EasingSettings.enabled          = cl.Easing.Enabled          end
+            if cl.Easing.Style            ~= nil then EasingSettings.style            = cl.Easing.Style            end
+            if cl.Easing.Duration         ~= nil then EasingSettings.duration         = cl.Easing.Duration         end
+            if cl.Easing.BackAmplitude    ~= nil then EasingSettings.backAmplitude    = cl.Easing.BackAmplitude    end
+            if cl.Easing.ElasticAmplitude ~= nil then EasingSettings.elasticAmplitude = cl.Easing.ElasticAmplitude end
+            if cl.Easing.ElasticFrequency ~= nil then EasingSettings.elasticFrequency = cl.Easing.ElasticFrequency end
+        end
+    end
+
+    local sa = CFG.Silent
+    if sa then
+        if sa.Enabled     ~= nil then SilentAimV2.enabled     = sa.Enabled     end
+        if sa.HitChance   ~= nil then SilentAimV2.hitChance   = sa.HitChance   end
+        if sa.Prediction  ~= nil then SilentAimV2.prediction  = sa.Prediction  end
+        if sa.NearestPart ~= nil then SilentAimV2.nearestPart = sa.NearestPart end
+        if sa.CheckFOV    ~= nil then SilentAimV2.checkFOV    = sa.CheckFOV    end
+        if sa.CheckRange  ~= nil then SilentAimV2.checkRange  = sa.CheckRange  end
+        if sa.CheckKnock  ~= nil then SilentAimV2.checkKnock  = sa.CheckKnock  end
+        if sa.TeamCheck   ~= nil then SilentAimV2.teamCheck   = sa.TeamCheck   end
+        if sa.CrewCheck   ~= nil then SilentAimV2.crewCheck   = sa.CrewCheck   end
+        if sa.WallCheck   ~= nil then SilentAimV2.wallCheck   = sa.WallCheck   end
+    end
+
+    local tl = CFG.TargetLock
+    if tl then
+        if tl.Enabled     ~= nil then TargetLock.masterEnabled = tl.Enabled     end
+        if tl.Key         ~= nil then TargetLock.key           = tl.Key         end
+        if tl.ShowLine    ~= nil then TargetLock.showLine      = tl.ShowLine    end
+        if tl.ShowOutline ~= nil then TargetLock.showOutline   = tl.ShowOutline end
+        if tl.ShowToasts  ~= nil then TargetLock.showToasts    = tl.ShowToasts  end
+    end
+
+    local ml = CFG.MouseLock
+    if ml then
+        if ml.Enabled    ~= nil then MouseLock.enabled    = ml.Enabled    end
+        if ml.Key        ~= nil then MouseLock.key        = ml.Key        end
+        if ml.Toggle     ~= nil then MouseLock.toggle     = ml.Toggle     end
+        if ml.AimPart    ~= nil then MouseLock.aimPart    = ml.AimPart    end
+        if ml.Smooth     ~= nil then MouseLock.smooth     = ml.Smooth     end
+        if ml.FrameSkip  ~= nil then MouseLock.frameSkip  = ml.FrameSkip  end
+        if ml.Prediction ~= nil then MouseLock.prediction = ml.Prediction end
+        if ml.HitChance  ~= nil then MouseLock.hitChance  = ml.HitChance  end
+        if ml.CheckFOV   ~= nil then MouseLock.checkFOV   = ml.CheckFOV   end
+        if ml.FovSize    ~= nil then MouseLock.fovSize    = ml.FovSize    end
+        if ml.CheckRange ~= nil then MouseLock.checkRange = ml.CheckRange end
+        if ml.Range      ~= nil then MouseLock.range      = ml.Range      end
+        if ml.CheckKnock ~= nil then MouseLock.checkKnock = ml.CheckKnock end
+    end
+
+    local gf = CFG.GunFov
+    if gf then
+        GunProfiles.enabled  = gf.Enabled == true
+        GunProfiles._gfCFG   = gf
+        GunProfiles._gunMap  = {
+            ["[Double-Barrel SG]"] = gf.DoubleBarrel,
+            ["[Revolver]"]         = gf.Revolver,
+            ["[TacticalShotgun]"]  = gf.TacticalShotgun,
+            ["[Shotgun]"]          = gf.Shotgun,
+            ["[Rifle]"]            = gf.Rifle,
+            ["[Smg]"]              = gf.Smg,
+            ["[AK-47]"]            = gf.AK47,
+            ["[AR]"]               = gf.AR,
+            ["[Silencer]"]         = gf.Silencer,
+            ["[Pistol]"]           = gf.Pistol,
+        }
+        GunProfiles._useGunFov = true
+    end
+
+    local df = CFG.DynamicFOV
+    if df then
+        if df.Enabled          ~= nil then DynamicFOV.enabled          = df.Enabled          end
+        if df.SmoothTransition ~= nil then DynamicFOV.smoothTransition = df.SmoothTransition end
+        if df.TransitionSpeed  ~= nil then DynamicFOV.transitionSpeed  = df.TransitionSpeed  end
+        if df.ShowZoneLabel    ~= nil then DynamicFOV.showZoneLabel    = df.ShowZoneLabel    end
+        if df.Zones then
+            if df.Zones.Close  then DynamicFOV.zones.close  = { maxDist=df.Zones.Close.MaxDist,  fovSize=df.Zones.Close.FovSize  } end
+            if df.Zones.Medium then DynamicFOV.zones.medium = { maxDist=df.Zones.Medium.MaxDist, fovSize=df.Zones.Medium.FovSize } end
+            if df.Zones.Far    then DynamicFOV.zones.far    = { maxDist=df.Zones.Far.MaxDist,    fovSize=df.Zones.Far.FovSize    } end
+            if df.Zones.Sniper then DynamicFOV.zones.sniper = { maxDist=df.Zones.Sniper.MaxDist, fovSize=df.Zones.Sniper.FovSize } end
+        end
+    end
+
+    local tb = CFG.TriggerBot
+    if tb then
+        if tb.Enabled    ~= nil then TriggerBot.enabled    = tb.Enabled    end
+        if tb.Key        ~= nil then TriggerBot.key        = tb.Key        end
+        if tb.ToggleMode ~= nil then TriggerBot.toggleMode = tb.ToggleMode end
+        if tb.RequireKey ~= nil then TriggerBot.requireKey = tb.RequireKey end
+        if tb.Interval   ~= nil then TriggerBot.interval   = tb.Interval   end
+        if tb.HitboxSize ~= nil then TriggerBot.hitboxSize = tb.HitboxSize end
+        if tb.KnifeCheck ~= nil then TriggerBot.knifeCheck = tb.KnifeCheck end
+        if tb.KnockCheck ~= nil then TriggerBot.knockCheck = tb.KnockCheck end
+    end
+
+    local db = CFG.DBSniper
+    if db then
+        if db.Enabled   ~= nil then DBSniper.enabled   = db.Enabled   end
+        if db.Intensity ~= nil then DBSniper.intensity = db.Intensity end
+    end
+
+    local ts = CFG.TacticalSniper
+    if ts then
+        if ts.Enabled   ~= nil then TacticalSniper.enabled   = ts.Enabled   end
+        if ts.Intensity ~= nil then TacticalSniper.intensity = ts.Intensity end
+    end
+
+    local sp = CFG.Speed
+    if sp then
+        if sp.Enabled ~= nil then SpeedHack.enabled = sp.Enabled end
+        if sp.Speed   ~= nil then SpeedHack.speed   = sp.Speed   end
+        if sp.Key     ~= nil then SpeedHack.key     = sp.Key     end
+    end
+
+    local es = CFG.ESP
+    if es then
+        if es.Enabled       ~= nil then ESP.enabled       = es.Enabled       end
+        if es.Boxes         ~= nil then ESP.boxes         = es.Boxes         end
+        if es.Names         ~= nil then ESP.names         = es.Names         end
+        if es.HealthBars    ~= nil then ESP.healthBars    = es.HealthBars    end
+        if es.Distance      ~= nil then ESP.distance      = es.Distance      end
+        if es.Tracers       ~= nil then ESP.tracers       = es.Tracers       end
+        if es.Skeleton      ~= nil then ESP.skeleton      = es.Skeleton      end
+        if es.Chams         ~= nil then ESP.chams         = es.Chams         end
+        if es.TeamCheck     ~= nil then ESP.teamCheck     = es.TeamCheck     end
+        if es.MaxDist       ~= nil then ESP.maxDist       = es.MaxDist       end
+        if es.BoxColor      ~= nil then ESP.boxColor      = es.BoxColor      end
+        if es.TracerColor   ~= nil then ESP.tracerColor   = es.TracerColor   end
+        if es.SkeletonColor ~= nil then ESP.skeletonColor = es.SkeletonColor end
+        if es.ChamColor     ~= nil then ESP.chamColor     = es.ChamColor     end
+    end
+
+    if CFG.Whitelist then
+        for _, name in ipairs(CFG.Whitelist) do
+            for _, p in pairs(Players:GetPlayers()) do
+                if p.Name == name then Whitelist[p.UserId] = true end
+            end
+            Players.PlayerAdded:Connect(function(p)
+                if p.Name == name then Whitelist[p.UserId] = true end
+            end)
+        end
+    end
+
+    if CFG.Blacklist then
+        for _, name in ipairs(CFG.Blacklist) do
+            for _, p in pairs(Players:GetPlayers()) do
+                if p.Name == name then Blacklist[p.UserId] = true end
+            end
+            Players.PlayerAdded:Connect(function(p)
+                if p.Name == name then Blacklist[p.UserId] = true end
+            end)
+        end
+    end
+end
+_loadConfig()
 
 local espObjects = {}  -- [character] = { box, nameLabel, healthBar, distLabel, tracer, bones[], highlight }
 
@@ -3353,7 +3793,7 @@ end
 -- =================================================================
 
 -- ---- CAMLOCK ----
-do
+do -- camlock: status + settings
     local pg = Pages["Camlock"]
     local _, rfCL = UI.StatusRow(pg, "CamLock", function() return camLockEnabled end, function()
         camLockEnabled = not camLockEnabled
@@ -3364,11 +3804,31 @@ do
     UI.Keybind(pg,"Aim Key",settings.key,function(v) settings.key=v end)
     UI.Toggle(pg,"Toggle Mode",settings.toggle,function(v) settings.toggle=v end)
     UI.Toggle(pg,"Sticky Aim",settings.stickyAim,function(v) settings.stickyAim=v end)
-    UI.Toggle(pg,"Knock Check",settings.knockCheck,function(v) settings.knockCheck=v end)
+    UI.Toggle(pg,"Knock Check", settings.knockCheck,function(v) settings.knockCheck=v end)
+    UI.Toggle(pg,"Team Check",  settings.teamCheck,  function(v) settings.teamCheck=v  end)
+    UI.Toggle(pg,"Crew Check",  settings.crewCheck,  function(v) settings.crewCheck=v  end)
     UI.Slider(pg,"Range",settings.range,50,10000,10,function(v) settings.range=v end)
     UI.Slider(pg,"Smoothness",settings.smooth,0.01,1,0.01,function(v) settings.smooth=v end)
-
-    -- Aim part selector
+end
+do -- camlock: wall / shake / gun profiles
+    local pg = Pages["Camlock"]
+    sep(pg); UI.Header(pg,"wall check"); sep(pg)
+    UI.Toggle(pg,"Wall Check", settings.wallCheck, function(v)
+        settings.wallCheck = v
+        pcall(showToast, "Wall Check", v and "enabled — pauses on walls" or "disabled", v and TOAST_GREEN or TOAST_RED, "⬛")
+    end)
+    sep(pg); UI.Header(pg,"shake"); sep(pg)
+    UI.Toggle(pg,"Shake",settings.shakeEnabled,function(v) settings.shakeEnabled=v end)
+    UI.Slider(pg,"Shake X",settings.shakeX,0,0.02,0.001,function(v) settings.shakeX=v end)
+    UI.Slider(pg,"Shake Y",settings.shakeY,0,0.02,0.001,function(v) settings.shakeY=v end)
+    sep(pg); UI.Header(pg,"gun profiles"); sep(pg)
+    UI.Toggle(pg,"Gun Profiles",GunProfiles.enabled,function(v)
+        GunProfiles.enabled=v
+        pcall(showToast,"Gun Profiles", v and "enabled — auto fov/pred per gun" or "disabled", v and TOAST_GREEN or TOAST_RED,"🔫")
+    end)
+end
+do -- camlock: aim part selector
+    local pg = Pages["Camlock"]
     sep(pg); UI.Header(pg,"aim part"); sep(pg)
     local clPartNames = {"Head","UpperTorso","LowerTorso","HumanoidRootPart","Torso"}
     local clPartRow = Instance.new("Frame",pg)
@@ -3817,6 +4277,12 @@ do
     UI.Toggle(pg, "Check FOV",   SilentAimV2.checkFOV,   function(v) SilentAimV2.checkFOV   = v end)
     UI.Toggle(pg, "Check Range", SilentAimV2.checkRange,  function(v) SilentAimV2.checkRange  = v end)
     UI.Toggle(pg, "Check Knock", SilentAimV2.checkKnock,  function(v) SilentAimV2.checkKnock  = v end)
+    UI.Toggle(pg, "Team Check",  SilentAimV2.teamCheck,   function(v) SilentAimV2.teamCheck   = v end)
+    UI.Toggle(pg, "Crew Check",  SilentAimV2.crewCheck,   function(v) SilentAimV2.crewCheck   = v end)
+    UI.Toggle(pg, "Wall Check",  SilentAimV2.wallCheck,   function(v)
+        SilentAimV2.wallCheck = v
+        pcall(showToast,"Wall Check", v and "enabled — won't redirect thru walls" or "disabled", v and TOAST_GREEN or TOAST_RED,"⬛")
+    end)
 
     -- ── Live status ───────────────────────────────────────────────────────
     sep(pg); UI.Header(pg, "status"); sep(pg)
@@ -4048,9 +4514,9 @@ do
         if not TargetLock.masterEnabled then
             TargetLock.enabled = false
             tlLockOn(nil)
-            if TargetLock.showToasts then showToast("target lock disabled", Color3.fromRGB(80, 80, 100)) end
+            if TargetLock.showToasts then showToast("Target Lock", "disabled", TOAST_PURPLE, "🔓") end
         else
-            if TargetLock.showToasts then showToast("target lock enabled", TOAST_BLUE) end
+            if TargetLock.showToasts then showToast("Target Lock", "enabled", TOAST_BLUE, "🔒") end
         end
     end)
     -- Keybind
@@ -4441,7 +4907,7 @@ end)
 -- INTRO SEQUENCE
 -- ================================================================
 task.spawn(function()
-    local LOGO_ID  = "rbxassetid://103337988227837"
+    local LOGO_ID  = "rbxassetid://76785822191767"
     local SOUND_ID = "rbxassetid://126319073341656"
 
     local T_GROW     = 2.2
